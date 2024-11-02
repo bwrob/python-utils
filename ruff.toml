@@ -1,0 +1,10 @@
+include = ["python_playground/**/*.py", "python_playground/**/*.ipynb"]
+line-length = 88
+target-version = "py312"
+
+[lint]
+select = ["ALL"]
+ignore = ["D211", "COM819", "ISC001", "D213", "D203", "FA102", "T201"]
+
+[format]
+docstring-code-format = true

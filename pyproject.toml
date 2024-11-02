@@ -1,0 +1,34 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.poetry]
+name = "python-utils"
+version = "0.1.0"
+authors = ["bwrob"]
+description = ""
+readme = "README.md"
+packages = [{include = "src"}]
+
+
+[tool.poetry.dependencies]
+python = ">=3.12,<3.13"
+pandas-stubs = "^2.2.3.241009"
+pandas = "^2.2.3"
+jupyter = "^1.1.1"
+pydantic = "^2.9.2"
+rich = "^13.9.4"
+
+
+[tool.docformatter]
+recursive = true
+in-place = true
+black = true
+pre-summary-newline = false
+blank = true
+
+[tool.basedpyright]
+# many settings are not enabled even in strict mode, which is why basedpyright includes an "all" option
+# you can then decide which rules you want to disable
+typeCheckingMode = "all"
