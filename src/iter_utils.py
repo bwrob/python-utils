@@ -7,7 +7,7 @@ Public functions:
 from collections.abc import Iterable
 from itertools import islice
 from sys import maxsize
-from typing import TypeVar
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 S = TypeVar("S")
@@ -84,7 +84,7 @@ def unbox(iterable: Iterable[T]) -> T:
         return first_value
 
 
-def unzip(iterable: Iterable[tuple[T, S]]) -> tuple[Iterable[T], Iterable[S]]:
+def unzip(iterable: Iterable[tuple[Any, ...]]) -> tuple[Iterable[Any], ...]:
     """Unzip an iterable of tuples.
 
     Args:
@@ -97,5 +97,39 @@ def unzip(iterable: Iterable[tuple[T, S]]) -> tuple[Iterable[T], Iterable[S]]:
     True
 
     """
-    first, second = zip(*iterable, strict=True)
-    return first, second
+    zipped = zip(*iterable, strict=True)
+    return tuple(zipped)
+
+
+def flatten_iterable(iterable: Iterable[Any]) -> list[Any]:
+    """Flatten an iterable of iterables.
+
+    >>> deep_flatten([[(1, 2), (3, 4)], [(5, 6), (7, 8)]])
+    [1, 2, 3, 4, 5, 6, 7, 8]
+    >>> deep_flatten([[1, [2, 3]], 4, 5])
+    [1, 2, 3, 4, 5]
+
+    """
+    return [
+        item
+        for sublist in iterable
+        for item in (
+            deep_flatten(sublist)
+            if isinstance(sublist, Iterable) and not isinstance(sublist, str)
+            else [sublist]
+        )
+    ]
+
+
+def flatten_string_key_dict(dictionary: dict[str, Any]) -> dict[str, Any]:
+    """Flatten a dictionary of strings and nested dictionaries of strings and objects.
+
+    >>> flatten_string_key_dict({"a": "b", "c": {"d": "e"}}) == {"a": "b", "c.d": "e"}
+    True
+
+    """
+    return {
+        key + "." + subkey if isinstance(subvalue, dict) else key: subvalue
+        for key, value in dictionary.items()
+        for subkey, subvalue in flatten_string_key_dict(value).items()
+    }
