@@ -1,36 +1,61 @@
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+    requires      = ["poetry-core"]
+    build-backend = "poetry.core.masonry.api"
 
 
 [tool.poetry]
-name = "python-utils"
-version = "0.1.0"
-authors = ["bwrob"]
-description = ""
-readme = "README.md"
-packages = [{include = "src"}]
+    name        = "python-utils"
+    version     = "0.1.0"
+    authors     = ["bwrob"]
+    description = ""
+    readme      = "README.md"
+    packages    = [{ include = "src" }]
 
 
-[tool.poetry.dependencies]
-python = ">=3.12,<3.13"
-pandas-stubs = "^2.2.3.241009"
-pandas = "^2.2.3"
-jupyter = "^1.1.1"
-pydantic = "^2.9.2"
-rich = "^13.9.4"
-quantlib = "^1.36"
-tqdm = "^4.66.6"
+    [tool.poetry.dependencies]
+        python = ">=3.11,<3.13"
+
+        pandas-stubs = "^2.2.3.241126"
+        pandas       = "^2.2.3"
+        jupyter      = "^1.1.1"
+        pydantic     = "^2.10.6"
+        rich         = "^13.9.4"
+        quantlib     = "^1.37"
+        tqdm         = "^4.67.1"
+        poethepoet   = "^0.32.1"
 
 
 [tool.docformatter]
-recursive = true
-in-place = true
-black = true
-pre-summary-newline = false
-blank = true
+    recursive           = true
+    in-place            = true
+    black               = true
+    pre-summary-newline = false
+    blank               = true
 
 [tool.basedpyright]
-# many settings are not enabled even in strict mode, which is why basedpyright includes an "all" option
-# you can then decide which rules you want to disable
-typeCheckingMode = "all"
+    # many settings are not enabled even in strict mode, which is why basedpyright includes an "all" option
+    # you can then decide which rules you want to disable
+    typeCheckingMode = "all"
+
+[tool.ruff]
+    include = [
+        "python_playground/**/*.ipynb",
+        "python_playground/**/*.py",
+    ]
+    line-length = 88
+    target-version = "py311"
+
+    [tool.ruff.lint]
+        select = ["ALL"]
+        ignore = [
+            "COM819",
+            "D203",
+            "D211",
+            "D213",
+            "FA102",
+            "ISC001",
+            "T201",
+        ]
+
+    [tool.ruff.format]
+        docstring-code-format = true
