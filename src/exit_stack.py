@@ -69,7 +69,7 @@ def print_title(title: str) -> None:
 def analysis(
     *,
     benchmark_uuid: str,
-) -> Generator[str, None, None]:
+) -> Generator[str]:
     """Mock definition of an analysis.
 
     Example: equity delta and correlation with benchmark.
@@ -89,7 +89,7 @@ def analysis(
 
 
 @contextmanager
-def benchmark() -> Generator[str, None, None]:
+def benchmark() -> Generator[str]:
     """Mock definition of a benchmark.
 
     Args:
@@ -106,7 +106,7 @@ def benchmark() -> Generator[str, None, None]:
 
 
 @contextmanager
-def otc_products() -> Generator[str, None, None]:
+def otc_products() -> Generator[str]:
     """Mock definition of an otc products.
 
     Args:
@@ -125,7 +125,7 @@ def portfolio(
     *,
     portfolio_name: str,
     otc_products_uuid: str,
-) -> Generator[str, None, None]:
+) -> Generator[str]:
     """Mock definition of a portfolio.
 
     Args:

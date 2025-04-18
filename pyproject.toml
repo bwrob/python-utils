@@ -13,16 +13,16 @@
 
 
     [tool.poetry.dependencies]
-        python = ">=3.11,<3.13"
+        python = ">=3.13"
 
-        pandas-stubs = "^2.2.3.241126"
+        pandas-stubs = "^2.2.3.250308"
         pandas       = "^2.2.3"
         jupyter      = "^1.1.1"
-        pydantic     = "^2.10.6"
-        rich         = "^13.9.4"
+        pydantic     = "^2.11.3"
+        rich         = "^14.0.0"
         quantlib     = "^1.37"
         tqdm         = "^4.67.1"
-        poethepoet   = "^0.32.1"
+        poethepoet   = "^0.33.1"
 
 
 [tool.docformatter]
@@ -33,17 +33,11 @@
     blank               = true
 
 [tool.basedpyright]
-    # many settings are not enabled even in strict mode, which is why basedpyright includes an "all" option
-    # you can then decide which rules you want to disable
     typeCheckingMode = "all"
 
 [tool.ruff]
-    include = [
-        "python_playground/**/*.ipynb",
-        "python_playground/**/*.py",
-    ]
-    line-length = 88
-    target-version = "py311"
+    line-length    = 88
+    target-version = "py313"
 
     [tool.ruff.lint]
         select = ["ALL"]

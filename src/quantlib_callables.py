@@ -1,39 +1,48 @@
-"""QuantLib callables example"""
+"""QuantLib callables example."""
 
 import multiprocessing as mp
 from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import batched, chain, count, takewhile
 
-import QuantLib as ql
+import QuantLib as ql  # noqa: N813
 import tqdm
 from tqdm.contrib.concurrent import process_map
 
 
 @dataclass
 class Bond:
+    """A representation of a bond with an interest rate and an identifier.
+
+    Attributes
+    ----------
+    rate : float
+        The interest rate of the bond.
+    id : int
+        The unique identifier for the bond.
+
+    """
+
     rate: float
     id: int
 
 
 @dataclass
 class InputData:
+    """Input data for pricing callable bonds.
+
+    Attributes
+    ----------
+    bonds : list[Bond]
+        A list of Bond objects to be priced.
+
+    """
+
     bonds: list[Bond]
 
 
-def main(rates: Iterable[float], *, multiprocess: bool = False):
-    if not multiprocess:
-        results = price_with_setup(rates)
-    else:
-        batch_size = 100
-        batches = batched(rates, batch_size)
-        results = process_map(price_with_setup, batches, total=7_0, max_workers=8)
-        results = list(chain.from_iterable(results))
-    print(results[0], results[-1])
-
-
-def callable_bond(rate: float) -> ql.CallableFixedRateBond:
-    """Callable fixed rate bond example.
+def create_callable_bond(coupon_rate: float) -> ql.CallableFixedRateBond:
+    """Create a callable fixed rate bond.
 
     This example is from the QuantLib examples/callablebond.cpp file.
 
@@ -53,70 +62,82 @@ def callable_bond(rate: float) -> ql.CallableFixedRateBond:
     The example then returns the callable fixed rate bond object.
 
     """
-    callabilitySchedule = ql.CallabilitySchedule()
-    callPrice = 100.0
-    callDate = ql.Date(15, ql.September, 2006)
-    nc = ql.NullCalendar()
+    callability_schedule = ql.CallabilitySchedule()
+    call_price = 100.0
+    call_date = ql.Date(15, ql.September, 2006)
+    null_calendar = ql.NullCalendar()
 
-    # Number of calldates is 24
-    for _i in range(24):
-        callabilityPrice = ql.BondPrice(callPrice, ql.BondPrice.Clean)
-        callabilitySchedule.append(
-            ql.Callability(callabilityPrice, ql.Callability.Call, callDate),
+    # Number of call dates is 24
+    for _ in range(24):
+        callability_price = ql.BondPrice(call_price, ql.BondPrice.Clean)
+        callability_schedule.append(
+            ql.Callability(callability_price, ql.Callability.Call, call_date),
         )
-        callDate = nc.advance(callDate, 3, ql.Months)
+        call_date = null_calendar.advance(call_date, 3, ql.Months)
 
-    issueDate = ql.Date(16, ql.September, 2004)
-    maturityDate = ql.Date(15, ql.September, 2012)
-    calendar = ql.UnitedStates(ql.UnitedStates.GovernmentBond)
-    tenor = ql.Period(ql.Quarterly)
-    accrualConvention = ql.Unadjusted
-    schedule = ql.Schedule(
-        issueDate,
-        maturityDate,
-        tenor,
-        calendar,
-        accrualConvention,
-        accrualConvention,
+    issue_date = ql.Date(16, ql.September, 2004)
+    maturity_date = ql.Date(15, ql.September, 2012)
+    bond_calendar = ql.UnitedStates(ql.UnitedStates.GovernmentBond)
+    bond_tenor = ql.Period(ql.Quarterly)
+    accrual_convention = ql.Unadjusted
+    bond_schedule = ql.Schedule(
+        issue_date,
+        maturity_date,
+        bond_tenor,
+        bond_calendar,
+        accrual_convention,
+        accrual_convention,
         ql.DateGeneration.Backward,
-        False,
+        False,  # noqa: FBT003
     )
 
     settlement_days = 3
-    faceAmount = 100
-    accrual_daycount = ql.ActualActual(ql.ActualActual.Bond)
-    coupon = rate
+    face_amount = 100
+    accrual_day_count = ql.ActualActual(ql.ActualActual.Bond)
     return ql.CallableFixedRateBond(
         settlement_days,
-        faceAmount,
-        schedule,
-        [coupon],
-        accrual_daycount,
+        face_amount,
+        bond_schedule,
+        [coupon_rate],
+        accrual_day_count,
         ql.Following,
-        faceAmount,
-        issueDate,
-        callabilitySchedule,
+        face_amount,
+        issue_date,
+        callability_schedule,
     )
 
 
-def yield_curve(calcDate: ql.Date) -> ql.YieldTermStructureHandle:
-    dayCount = ql.ActualActual(ql.ActualActual.Bond)
+def yield_curve(calc_date: ql.Date) -> ql.YieldTermStructureHandle:
+    """Construct a yield term structure handle.
+
+    Parameters
+    ----------
+    calc_date : ql.Date
+        The calculation date for the yield curve.
+
+    Returns
+    -------
+    ql.YieldTermStructureHandle
+        A handle to the yield term structure.
+
+    """
+    day_count = ql.ActualActual(ql.ActualActual.Bond)
     rate = 0.06
-    termStructure = ql.FlatForward(
-        calcDate,
+    term_structure = ql.FlatForward(
+        calc_date,
         rate,
-        dayCount,
+        day_count,
         ql.Compounded,
         ql.Semiannual,
     )
-    return ql.RelinkableYieldTermStructureHandle(termStructure)
+    return ql.RelinkableYieldTermStructureHandle(term_structure)
 
 
 def hull_white_model(
     a: float,
     s: float,
     term_structure_handle: ql.YieldTermStructureHandle,
-):
+) -> ql.HullWhite:
     """Construct a Hull-White model.
 
     Parameters
@@ -125,6 +146,8 @@ def hull_white_model(
         The mean reversion parameter of the Hull-White model.
     s : float
         The volatility parameter of the Hull-White model.
+    term_structure_handle : YieldTermStructureHandle
+        The yield term structure handle used for the Hull-White model.
 
     Returns
     -------
@@ -135,7 +158,7 @@ def hull_white_model(
     return ql.HullWhite(term_structure_handle, a, s)
 
 
-def engine(model: ql.HullWhite, grid_points: int):
+def engine(model: ql.HullWhite, grid_points: int) -> ql.TreeCallableFixedRateBondEngine:
     """Construct a pricing engine.
 
     Hull-White model and a TreeCallableFixedRateBondEngine that
@@ -143,10 +166,8 @@ def engine(model: ql.HullWhite, grid_points: int):
 
     Parameters
     ----------
-    a : float
-        The mean reversion parameter of the Hull-White model.
-    s : float
-        The volatility parameter of the Hull-White model.
+    model : HullWhite
+        The Hull-White model to use for pricing.
     grid_points : int
         The number of grid points to use in the finite difference method.
 
@@ -199,6 +220,9 @@ def price_with_setup(
     input_data : InputData
         The input data containing the bonds to be priced.
 
+    multiprocess : bool, optional
+        Whether to disable the progress bar in multiprocess mode (default: True).
+
     Returns
     -------
     list[float]
@@ -206,11 +230,11 @@ def price_with_setup(
         places.
 
     """
-    calcDate = ql.Date(16, 8, 2006)
-    ql.Settings.instance().evaluationDate = calcDate
+    calc_date = ql.Date(16, 8, 2006)
+    ql.Settings.instance().evaluationDate = calc_date
 
-    ql_bonds = [callable_bond(bond.rate) for bond in input_data.bonds]
-    term_structure = yield_curve(calcDate)
+    ql_bonds = [create_callable_bond(bond.rate) for bond in input_data.bonds]
+    term_structure = yield_curve(calc_date)
     model = hull_white_model(0.5, 0.05, term_structure)
     tree_engine = engine(model, 500)
     return [
@@ -219,7 +243,7 @@ def price_with_setup(
     ]
 
 
-def main(rates: Iterable[float], *, multiprocess: bool = False):
+def main(rates: Iterable[float], *, multiprocess: bool = False) -> None:
     """Price a list of callable bonds using a Hull-White model.
 
     This function takes an iterable of interest rates and prices a list of
@@ -243,7 +267,10 @@ def main(rates: Iterable[float], *, multiprocess: bool = False):
         results = price_with_setup(InputData(bonds), multiprocess=False)
     else:
         batch_size = 100
-        batches = [InputData(list(batch)) for batch in list(batched(bonds, batch_size))]
+        batches = [
+            InputData(list(batch))
+            for batch in list(batched(bonds, batch_size, strict=False))
+        ]
         results = process_map(
             price_with_setup,
             batches,
@@ -254,9 +281,11 @@ def main(rates: Iterable[float], *, multiprocess: bool = False):
 
 
 if __name__ == "__main__":
+    MAX_RATE = 0.15
+
     main(
         rates=takewhile(
-            lambda x: x < 0.15,
+            lambda x: x < MAX_RATE,
             count(0.03, 0.00001),
         ),
         multiprocess=True,

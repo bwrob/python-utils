@@ -11,110 +11,27 @@ from pydantic import BaseModel
 from rich.console import Console
 
 console = Console()
-colours = ["navy_blue", "blue", "cyan", "green", "yellow", "orange", "red"]
+colors = ["navy_blue", "blue", "cyan", "green", "yellow", "orange", "red"]
 type_colour = "bright_black"
 
 
-class InnerNode(BaseModel):
-    """Inner node model for testing."""
-
-    name: str
-    id_number: int
-
-
-class AnotherInnerNode(BaseModel):
-    """Another inner node model for testing."""
-
-    age: int
-    weight: float
-
-
-@dataclass
-class InnerDataclass:
-    """Inner dataclass for testing."""
-
-    name: str
-    id_number: int
-
-
-@dataclass
-class NodeDataclass:
-    """Node dataclass for testing."""
-
-    name: str
-    inner: InnerDataclass
-
-
-class Node(BaseModel):
-    """Node model for testing."""
-
-    name: str
-    inner: InnerNode
-    many_inner: list[InnerNode]
-    union_inner: InnerNode | AnotherInnerNode
-    many_union_inner: list[InnerNode | AnotherInnerNode]
-    dict_union_inner: dict[str, InnerNode]
-
-
-class Root(BaseModel):
-    """Root model for testing."""
-
-    name: dict[str, InnerNode]
-    data_child: NodeDataclass
-    child: Node
-
-
 def is_pydantic_model(type_: type[Any]) -> bool:
-    """Check whether a type is a Pydantic model.
-
-    Args:
-        type_: The type to check.
-
-    Returns:
-        bool: True if the type is a Pydantic model, False otherwise.
-
-    """
+    """Check whether a type is a Pydantic model."""
     return hasattr(type_, "model_fields")
 
 
 def is_dataclass(type_: type[Any]) -> bool:
-    """Check whether a type is a dataclass.
-
-    Args:
-        type_: The type to check.
-
-    Returns:
-        bool: True if the type is a dataclass, False otherwise.
-
-    """
+    """Check whether a type is a dataclass."""
     return hasattr(type_, "__dataclass_fields__")
 
 
 def is_model(type_: type[Any]) -> bool:
-    """Check whether a type is a Pydantic model or a dataclass.
-
-    Args:
-        type_: The type to check.
-
-    Returns:
-        bool: True if the type is a Pydantic model or a dataclass, False otherwise.
-
-    """
+    """Check whether a type is a Pydantic model or a dataclass."""
     return is_pydantic_model(type_) or is_dataclass(type_)
 
 
-def model_fields(type_: type[Any]) -> Generator[tuple[str, type[Any]], None, None]:
-    """Yield the fields and their types of a given type.
-
-    Checks if it is a Pydantic model or a dataclass.
-
-    Args:
-        type_ (type[Any]): The type to introspect.
-
-    Yields:
-        tuple[str, type[Any]]: A tuple containing the field name and type annotation.
-
-    """
+def model_fields(type_: type[Any]) -> Generator[tuple[str, type[Any]]]:
+    """Yield the fields and their types of a given type."""
     if is_pydantic_model(type_):
         for name, info in type_.model_fields.items():
             yield name, info.annotation
@@ -124,15 +41,7 @@ def model_fields(type_: type[Any]) -> Generator[tuple[str, type[Any]], None, Non
 
 
 def type_to_string(type_: type[Any]) -> str:
-    """Convert a type to a string representation.
-
-    Args:
-        type_ (type[Any]): The type to convert.
-
-    Returns:
-        str: The string representation of the type.
-
-    """
+    """Convert a type to a string representation."""
     orgin = get_origin(type_)
     if orgin is None:
         return type_.__name__
@@ -142,16 +51,8 @@ def type_to_string(type_: type[Any]) -> str:
 
 def extract_model_types_from_composite(
     type_: type[Any],
-) -> Generator[type[Any], None, None]:
-    """Recursively extracts Pydantic model types from a composite type.
-
-    Args:
-        type_ (type[Any]): The type to extract models from.
-
-    Yields:
-        type[Any]: Pydantic model types.
-
-    """
+) -> Generator[type[Any]]:
+    """Recursively extracts Pydantic model types from a composite type."""
     for arg in get_args(type_):
         if is_model(arg):
             yield arg
@@ -164,7 +65,7 @@ def tree(
     level: int = 0,
     *,
     is_root: bool = True,
-) -> Generator[tuple[str, str, int], None, None]:
+) -> Generator[tuple[str, str, int]]:
     """Generate a tree representation of a model's fields and their types.
 
     Recursively traverses the fields of a Pydantic model or dataclass,
@@ -200,19 +101,11 @@ def tree(
 
 
 def console_print(indent: str, name: str, type_: str) -> None:
-    """Print a single line of a tree representation of a model to the console.
-
-    Args:
-        indent (str): The indentation for the line.
-        name (str): The name of the field.
-        type_ (str): The type of the field, as a string.
-
-    """
-    level_colour = len(indent) % len(colours)
+    """Print a single line of a tree representation of a model to the console."""
+    level_color = len(indent) % len(colors)
     console.print(
         indent,
-        f"[{level_colour}]{name.ljust(7)}[/{level_colour}]",
-        ":",
+        f"[{colors[level_color]}]{name.ljust(7)}[/{colors[level_color]}]",
         f"[{type_colour}]{type_}[/{type_colour}]",
     )
 
@@ -224,12 +117,6 @@ def display(model: type, *, rich: bool = False) -> None:
     represents a field in the model. The indentation of each line
     corresponds to its level in the tree, and the text of the line
     contains the field name and its type.
-
-    Args:
-        model (BaseModel): The model to display.
-        rich (bool, optional): Whether to use Rich for printing.
-            Defaults to False.
-
     """
     for name, type_, level in tree(model):
         indent = "   " * level
@@ -239,4 +126,48 @@ def display(model: type, *, rich: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    display(Root)
+
+    class InnerNode(BaseModel):
+        """Inner node model for testing."""
+
+        name: str
+        id_number: int
+
+    class AnotherInnerNode(BaseModel):
+        """Another inner node model for testing."""
+
+        age: int
+        weight: float
+
+    @dataclass
+    class InnerDataclass:
+        """Inner dataclass for testing."""
+
+        name: str
+        id_number: int
+
+    @dataclass
+    class NodeDataclass:
+        """Node dataclass for testing."""
+
+        name: str
+        inner: InnerDataclass
+
+    class Node(BaseModel):
+        """Node model for testing."""
+
+        name: str
+        inner: InnerNode
+        many_inner: list[InnerNode]
+        union_inner: InnerNode | AnotherInnerNode
+        many_union_inner: list[InnerNode | AnotherInnerNode]
+        dict_union_inner: dict[str, InnerNode]
+
+    class Root(BaseModel):
+        """Root model for testing."""
+
+        name: dict[str, InnerNode]
+        data_child: NodeDataclass
+        child: Node
+
+    display(Root, rich=True)
