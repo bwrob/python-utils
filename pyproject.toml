@@ -36,11 +36,7 @@
     typeCheckingMode = "all"
 
 [tool.ruff]
-    include = [
-        "python_playground/**/*.ipynb",
-        "python_playground/**/*.py",
-    ]
-    line-length = 88
+    line-length    = 88
     target-version = "py313"
 
     [tool.ruff.lint]

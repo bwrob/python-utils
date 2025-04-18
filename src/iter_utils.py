@@ -104,9 +104,9 @@ def unzip(iterable: Iterable[tuple[Any, ...]]) -> tuple[Iterable[Any], ...]:
 def flatten_iterable(iterable: Iterable[Any]) -> list[Any]:
     """Flatten an iterable of iterables.
 
-    >>> deep_flatten([[(1, 2), (3, 4)], [(5, 6), (7, 8)]])
+    >>> flatten_iterable([[(1, 2), (3, 4)], [(5, 6), (7, 8)]])
     [1, 2, 3, 4, 5, 6, 7, 8]
-    >>> deep_flatten([[1, [2, 3]], 4, 5])
+    >>> flatten_iterable([[1, [2, 3]], 4, 5])
     [1, 2, 3, 4, 5]
 
     """
@@ -114,7 +114,7 @@ def flatten_iterable(iterable: Iterable[Any]) -> list[Any]:
         item
         for sublist in iterable
         for item in (
-            deep_flatten(sublist)
+            flatten_iterable(sublist)
             if isinstance(sublist, Iterable) and not isinstance(sublist, str)
             else [sublist]
         )

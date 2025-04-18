@@ -99,7 +99,7 @@ def run_command(
 
 def path_files(
     directory_tasks: TaskList[Path],
-) -> Generator[tuple[Path, int], None, None]:
+) -> Generator[tuple[Path, int]]:
     """Generate all files in the work folder that are not excluded.
 
     Yields the folder path at beginning of the generator.
