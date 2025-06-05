@@ -70,10 +70,6 @@ def unbox(iterable: Iterable[T]) -> T:
     True
 
     """
-    if not isinstance(iterable, Iterable):
-        msg = "Input must be an iterable."
-        raise TypeError(msg)
-
     iterator = iter(iterable)
     first_value = next(iterator)
     try:
@@ -84,7 +80,7 @@ def unbox(iterable: Iterable[T]) -> T:
         return first_value
 
 
-def unzip(iterable: Iterable[tuple[Any, ...]]) -> tuple[Iterable[Any], ...]:
+def unzip(iterable: Iterable[tuple[T, ...]]) -> tuple[Iterable[T], ...]:
     """Unzip an iterable of tuples.
 
     Args:
