@@ -88,6 +88,7 @@ class ProgressMessage[T]:
 
 
 type ManagerQueue[T] = _ManagerQueue[ProgressMessage[T]]
+type Worker[T] = Callable[[int, int, TaskID | None, ManagerQueue[T]], T]
 
 
 @dataclass
@@ -120,15 +121,11 @@ class TaskElapsedTimeColumn(ProgressColumn):
     def render(self, task: Task) -> Text:
         """Render the time elapsed for the given task."""
         if task.id == self.overall_task_id:
-            # For the overall task, use rich's built-in elapsed time
             elapsed_time = task.elapsed
         elif task.id in self.task_start_times:
-            # For individual worker tasks, use our custom recorded start time
             elapsed_time = time.monotonic() - self.task_start_times[task.id]
         else:
-            # If start time not yet recorded or task finished, show placeholder
             return Text("-:--:--")
-
         return Text(str(time.strftime("%H:%M:%S", time.gmtime(elapsed_time))))
 
 
@@ -136,7 +133,7 @@ def _perform_task_work(
     task_id_num: int,
     total_steps: int,
     rich_task_id: TaskID | None,
-    progress_queue: ManagerQueue[ProgressMessage[float]],
+    progress_queue: ManagerQueue[float],
 ) -> float:
     total_sleep_time = 0.0
 
@@ -169,11 +166,12 @@ def _manage_worker_progress[T](
     task_id_num: int,
     total_steps: int,
     shared_resources: SharedResources[T],
-    task_logic_func: Callable[[int, int, TaskID | None, ManagerQueue[T]], T],
+    task_logic_func: Worker[T],
 ) -> float:
-    available_task_ids: Manager.list = shared_resources.task_ids
-    slot_lock: mp.Lock = shared_resources.lock
-    progress_queue: mp.Queue = shared_resources.queue
+    """'Manage the progress of a worker task, acquiring a slot and reporting progress."""
+    available_task_ids = shared_resources.task_ids
+    slot_lock = shared_resources.lock
+    progress_queue = shared_resources.queue
 
     rich_task_id: TaskID | None = None
     acquired: bool = False
