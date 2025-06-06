@@ -10,11 +10,12 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum, auto
+from functools import partial
 from multiprocessing import Manager, Pool
 from multiprocessing.managers import SyncManager
 from multiprocessing.queues import Queue as _ManagerQueue
 from multiprocessing.synchronize import Lock as ManagerLock
-from typing import override
+from typing import cast, override
 
 from rich.console import Console
 from rich.progress import (
@@ -29,7 +30,7 @@ from rich.progress import (
 )
 from rich.text import Text
 
-# --- Constants ---
+# --- Constants -------
 # Task Simulation Constants
 INITIAL_SLEEP_MIN: float = 0.1
 INITIAL_SLEEP_MAX: float = 0.5
@@ -56,7 +57,7 @@ TASK_SLEEP_TIME_FORMAT: str = "Task {}: {:.2f}s"
 AVERAGE_SLEEP_TIME_FORMAT: str = "\nAverage sleep time: {:.2f}s"
 
 
-NUM_TASKS: int = 40
+NUM_TASKS: int = 20
 MIN_STEPS: int = 50
 MAX_STEPS: int = 200
 NUM_PROCESSES: int = 10
@@ -100,7 +101,6 @@ class SharedResources[T]:
     queue: ManagerQueue[T]
 
 
-# --- Custom Rich Progress Column ---
 class TaskElapsedTimeColumn(ProgressColumn):
     """A custom progress column.
 
@@ -129,45 +129,12 @@ class TaskElapsedTimeColumn(ProgressColumn):
         return Text(str(time.strftime("%H:%M:%S", time.gmtime(elapsed_time))))
 
 
-def _perform_task_work(
-    task_id_num: int,
-    total_steps: int,
-    rich_task_id: TaskID | None,
-    progress_queue: ManagerQueue[float],
-) -> float:
-    total_sleep_time = 0.0
-
-    initial_sleep = random.uniform(INITIAL_SLEEP_MIN, INITIAL_SLEEP_MAX)  # noqa: S311
-    time.sleep(initial_sleep)
-    total_sleep_time += initial_sleep
-
-    for i in range(total_steps):
-        msg = ""
-        step_sleep = random.uniform(STEP_SLEEP_MIN, STEP_SLEEP_MAX)  # noqa: S311
-        time.sleep(step_sleep)
-        total_sleep_time += step_sleep
-
-        if i == total_steps // 2:
-            msg = f"Task {task_id_num} is halfway done."
-
-        progress_queue.put(
-            ProgressMessage(
-                type=ProgressMessageType.UPDATE,
-                task_id=rich_task_id,
-                advance=1,
-                message=msg,
-            ),
-        )
-
-    return total_sleep_time
-
-
 def _manage_worker_progress[T](
     task_id_num: int,
     total_steps: int,
     shared_resources: SharedResources[T],
     task_logic_func: Worker[T],
-) -> float:
+) -> T:
     """'Manage the progress of a worker task, acquiring a slot and reporting progress."""
     available_task_ids = shared_resources.task_ids
     slot_lock = shared_resources.lock
@@ -234,46 +201,47 @@ def _manage_worker_progress[T](
     return task_result
 
 
-# --- Worker Function (Entry point for multiprocessing pool) ---
-def worker_function(task_info: tuple[int, int, SharedResources]) -> float:
+def _managed_worker[T](
+    task_info: tuple[int, int, SharedResources[T]],
+    worker: Worker[T],
+) -> T:
     task_id_num, total_steps, shared_resources = task_info
     return _manage_worker_progress(
         task_id_num,
         total_steps,
         shared_resources,
-        _perform_task_work,
+        worker,
     )
 
 
-# --- Initialization and Setup Functions ---
-def _initialize_shared_resources_and_tasks(
+def _initialize_shared_resources_and_tasks[T](
     manager: SyncManager,
     num_tasks: int,
     min_steps: int,
     max_steps: int,
-) -> tuple[SharedResources, list[tuple[int, int, SharedResources]]]:
-    shared_resources = SharedResources(
-        task_ids=manager.list(),
-        lock=manager.Lock(),
-        queue=manager.Queue(),
+) -> tuple[SharedResources[T], list[tuple[int, int, SharedResources[T]]]]:
+    shared_resources: SharedResources[T] = SharedResources(
+        task_ids=manager.list(),  # pyright: ignore[reportArgumentType]
+        lock=manager.Lock(),  # pyright: ignore[reportArgumentType]
+        queue=cast("ManagerQueue[T]", manager.Queue()),  # pyright: ignore[reportInvalidCast]
     )
 
-    task_args: list[tuple[int, int, SharedResources]] = []
-    for i in range(num_tasks):
-        task_args.append((i, random.randint(min_steps, max_steps), shared_resources))
-
+    task_args = [
+        (i, random.randint(min_steps, max_steps), shared_resources)  # noqa: S311
+        for i in range(num_tasks)
+    ]
     return shared_resources, task_args
 
 
-def _setup_progress_display(
+def _setup_progress_display[T](
     console: Console,
     progress: Progress,
     num_processes: int,
     num_tasks: int,
-    shared_resources: SharedResources,
+    shared_resources: SharedResources[T],
 ) -> TaskID:
     pre_created_rich_tasks: list[TaskID] = []
-    for i in range(num_processes):
+    for _ in range(num_processes):
         task_id = progress.add_task(
             DEFAULT_WAITING_TASK_DESCRIPTION,
             total=1,
@@ -353,19 +321,18 @@ def _process_progress_updates(
             console.print(f"[red]Error processing progress update: {e}[/red]")
 
 
-# --- Main Orchestration Function ---
-def run_progress_manager(
+def run_progress_manager[T](
+    *,
     num_tasks: int,
     min_steps: int,
     max_steps: int,
     num_processes: int,
-) -> list[float]:
+    worker: Worker[T],
+) -> list[T]:
     console = Console()
     console.print(
-        f"Starting process pool with {num_processes} concurrent workers for {num_tasks} tasks...",
+        f"Starting process pool with {num_processes}  workers for {num_tasks} tasks.",
     )
-
-    final_results: list[float] = []
     task_start_times: dict[TaskID, float] = {}
 
     with Manager() as manager:
@@ -400,7 +367,8 @@ def run_progress_manager(
 
             with Pool(processes=num_processes) as pool:
                 async_results = [
-                    pool.apply_async(worker_function, (arg,)) for arg in task_args
+                    pool.apply_async(partial(_managed_worker, worker=worker), (arg,))
+                    for arg in task_args
                 ]
 
                 _process_progress_updates(
@@ -418,6 +386,39 @@ def run_progress_manager(
     return final_results
 
 
+def fake_work(
+    task_id_num: int,
+    total_steps: int,
+    rich_task_id: TaskID | None,
+    progress_queue: ManagerQueue[float],
+) -> float:
+    total_sleep_time = 0.0
+
+    initial_sleep = random.uniform(INITIAL_SLEEP_MIN, INITIAL_SLEEP_MAX)  # noqa: S311
+    time.sleep(initial_sleep)
+    total_sleep_time += initial_sleep
+
+    for i in range(total_steps):
+        msg = ""
+        step_sleep = random.uniform(STEP_SLEEP_MIN, STEP_SLEEP_MAX)  # noqa: S311
+        time.sleep(step_sleep)
+        total_sleep_time += step_sleep
+
+        if i == total_steps // 2:
+            msg = f"Task {task_id_num} is halfway done."
+
+        progress_queue.put(
+            ProgressMessage(
+                type=ProgressMessageType.UPDATE,
+                task_id=rich_task_id,
+                advance=1,
+                message=msg,
+            ),
+        )
+
+    return total_sleep_time
+
+
 def main() -> None:
     """Showcase the live progress manager with multiprocessing."""
     task_work_outputs = run_progress_manager(
@@ -425,6 +426,7 @@ def main() -> None:
         min_steps=MIN_STEPS,
         max_steps=MAX_STEPS,
         num_processes=NUM_PROCESSES,
+        worker=fake_work,
     )
     print(
         AVERAGE_SLEEP_TIME_FORMAT.format(
