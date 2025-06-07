@@ -10,16 +10,14 @@ import time
 from collections import deque
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
-from enum import StrEnum, auto
 from functools import partial
 from multiprocessing import Manager, Pool
-from multiprocessing.managers import SyncManager
 from multiprocessing.queues import Queue as _ManagerQueue
 from multiprocessing.synchronize import Lock as ManagerLock
 from typing import cast, override
 
 from rich.align import Align
-from rich.console import Console, ConsoleOptions
+from rich.console import Console, ConsoleOptions, RenderableType
 from rich.live import Live
 from rich.panel import Panel
 from rich.progress import (
@@ -40,7 +38,7 @@ from rich.text import Text
 INITIAL_SLEEP_MIN: float = 0.1
 INITIAL_SLEEP_MAX: float = 0.5
 STEP_SLEEP_MIN: float = 0.01
-STEP_SLEEP_MAX: float = 0.05
+STEP_SLEEP_MAX: float = 0.02
 
 # Progress Management Constants
 LOCK_ACQUISITION_RETRIES: int = 10
@@ -67,43 +65,53 @@ MIN_STEPS: int = 50
 MAX_STEPS: int = 200
 NUM_PROCESSES: int = 10
 
-# --- Enums and Dataclasses for Shared Resources and Queue Messages ---
-
-
-class ProgressMessageType(StrEnum):
-    """Enum to define the type of progress message."""
-
-    START = auto()
-    UPDATE = auto()
-    FINISH = auto()
-    LOG = auto()
-
 
 @dataclass
-class ProgressMessage[T]:
+class LogMessage:
     """Dataclass to represent a message sent through the progress queue."""
 
-    type: ProgressMessageType
-    task_id: TaskID | None = None
-    description: str | None = None
-    total: int | None = None
-    advance: int | None = None
-    message: str | None = None
-    result_data: T | None = None
-    start_time: float | None = None
-
-
-type ManagerQueue[T] = _ManagerQueue[ProgressMessage[T]]
-type Worker[T] = Callable[[int, int, TaskID | None, ManagerQueue[T]], T]
+    task_id: TaskID
+    message: str
 
 
 @dataclass
-class SharedResources[T]:
+class StartMessage:
+    """Dataclass to represent a message sent through the progress queue."""
+
+    task_id: TaskID
+    description: str
+    start_time: float
+    total: int
+
+
+@dataclass
+class UpdateMessage:
+    """Dataclass to represent a message sent through the progress queue."""
+
+    task_id: TaskID
+    message: str
+    advance: int
+
+
+@dataclass
+class FinishMessage:
+    """Dataclass to represent a message sent through the progress queue."""
+
+    task_id: TaskID
+
+
+type ProcessMessage = LogMessage | StartMessage | UpdateMessage | FinishMessage
+type ManagerQueue = _ManagerQueue[ProcessMessage]
+type Worker[T] = Callable[[int, int, TaskID, ManagerQueue], T]
+
+
+@dataclass
+class SharedResources:
     """Dataclass to hold shared resources for multiprocessing tasks."""
 
-    task_ids: list[int]
+    task_ids: list[TaskID]
     lock: ManagerLock
-    queue: ManagerQueue[T]
+    queue: ManagerQueue
 
 
 class TaskElapsedTimeColumn(ProgressColumn):
@@ -132,9 +140,6 @@ class TaskElapsedTimeColumn(ProgressColumn):
         else:
             return Text("-:--:--")
         return Text(str(time.strftime("%H:%M:%S", time.gmtime(elapsed_time))))
-
-
-from rich.console import RenderableType
 
 
 class MessagePanel(Panel):
@@ -193,18 +198,15 @@ class MessagePanel(Panel):
             RenderableType: The rendered panel.
 
         """
-        if not self.messages:
-            inner_content = Align.center(Text("No messages yet...", style="dim italic"))
-        else:
-            message_lines: list[Text] = []
-            for i, msg in enumerate(self.messages):
-                if i == len(self.messages) - 1:
-                    message_lines.append(Text(f"• {msg}", style="bold yellow"))
-                elif i == len(self.messages) - 2:
-                    message_lines.append(Text(f"• {msg}", style="orange3"))
-                else:
-                    message_lines.append(Text(f"• {msg}", style="grey50"))
-            inner_content = Text("\n").join(message_lines)
+        message_lines: list[Text] = []
+        for i, msg in enumerate(self.messages):
+            if i == len(self.messages) - 1:
+                message_lines.append(Text(f"• {msg}", style="bold yellow"))
+            elif i == len(self.messages) - 2:
+                message_lines.append(Text(f"• {msg}", style="orange3"))
+            else:
+                message_lines.append(Text(f"• {msg}", style="grey50"))
+        inner_content = Text("\n").join(message_lines)
 
         self.renderable: RenderableType = inner_content
         self.subtitle: Text | str | None = Text(
@@ -221,7 +223,7 @@ class MessagePanel(Panel):
 def _manage_worker_progress[T](
     task_id_num: int,
     total_steps: int,
-    shared_resources: SharedResources[T],
+    shared_resources: SharedResources,
     task_logic_func: Worker[T],
 ) -> T:
     """'Manage the progress of a worker task, acquiring a slot and reporting progress."""
@@ -231,7 +233,7 @@ def _manage_worker_progress[T](
 
     rich_task_id: TaskID | None = None
     acquired: bool = False
-    task_result: float | None = None
+    task_result: T | None = None
     task_start_monotonic_time: float | None = None
 
     for _ in range(LOCK_ACQUISITION_RETRIES):
@@ -247,20 +249,12 @@ def _manage_worker_progress[T](
             time.sleep(LOCK_RETRY_SLEEP)
 
     if not acquired or rich_task_id is None:
-        task_result = _perform_task_work(task_id_num, total_steps, None, progress_queue)
-        progress_queue.put(
-            ProgressMessage(
-                type=ProgressMessageType.LOG,
-                message=WARNING_NO_SLOT_MESSAGE.format(task_id_num, task_result),
-            ),
-        )
-        return task_result
+        return task_logic_func(task_id_num, total_steps, None, progress_queue)
 
     try:
         task_start_monotonic_time = time.monotonic()
         progress_queue.put(
-            ProgressMessage(
-                type=ProgressMessageType.START,
+            StartMessage(
                 task_id=rich_task_id,
                 description=f"Task {task_id_num}",
                 total=total_steps,
@@ -277,10 +271,8 @@ def _manage_worker_progress[T](
 
     finally:
         progress_queue.put(
-            ProgressMessage(
-                type=ProgressMessageType.FINISH,
+            FinishMessage(
                 task_id=rich_task_id,
-                result_data=task_result,
             ),
         )
 
@@ -291,7 +283,7 @@ def _manage_worker_progress[T](
 
 
 def _managed_worker[T](
-    task_info: tuple[int, int, SharedResources[T]],
+    task_info: tuple[int, int, SharedResources],
     worker: Worker[T],
 ) -> T:
     task_id_num, total_steps, shared_resources = task_info
@@ -303,31 +295,11 @@ def _managed_worker[T](
     )
 
 
-def _initialize_shared_resources_and_tasks[T](
-    manager: SyncManager,
-    num_tasks: int,
-    min_steps: int,
-    max_steps: int,
-) -> tuple[SharedResources[T], list[tuple[int, int, SharedResources[T]]]]:
-    shared_resources: SharedResources[T] = SharedResources(
-        task_ids=manager.list(),  # pyright: ignore[reportArgumentType]
-        lock=manager.Lock(),  # pyright: ignore[reportArgumentType]
-        queue=cast("ManagerQueue[T]", manager.Queue()),  # pyright: ignore[reportInvalidCast]
-    )
-
-    task_args = [
-        (i, random.randint(min_steps, max_steps), shared_resources)  # noqa: S311
-        for i in range(num_tasks)
-    ]
-    return shared_resources, task_args
-
-
-def _setup_progress_display[T](
-    console: Console,
+def _setup_progress_display(
     progress: Progress,
     num_processes: int,
     num_tasks: int,
-    shared_resources: SharedResources[T],
+    shared_resources: SharedResources,
 ) -> TaskID:
     pre_created_rich_tasks: list[TaskID] = []
     for _ in range(num_processes):
@@ -344,118 +316,102 @@ def _setup_progress_display[T](
     return overall_task
 
 
-# --- Progress Update Processing Loop ---
-@dataclass
-class ProgressUpdateContext:
-    """Context object for managing progress updates in the progress manager."""
-
-    progress: Progress
-    message_panel: MessagePanel
-    overall_task: TaskID
-    num_tasks: int
-    console: Console
-    task_start_times: dict[TaskID, float]
-
-
-def _handle_start_message[T](
-    msg: ProgressMessage[T],
-    ctx: ProgressUpdateContext,
+def _handle_start_msg(
+    msg: StartMessage,
+    progress: Progress,
+    log_panel: MessagePanel,
+    task_start_times: dict[TaskID, float],
 ) -> None:
-    if msg.task_id is not None and msg.start_time is not None:
-        ctx.task_start_times[msg.task_id] = msg.start_time
-    ctx.progress.update(
+    task_start_times[msg.task_id] = msg.start_time
+    progress.update(
         msg.task_id,
         description=msg.description,
         total=msg.total,
         completed=0,
         visible=True,
     )
+    log_panel.add_message(f"Task {msg.task_id} - {msg.description} started.")
 
 
-def _handle_update_message[T](
-    msg: ProgressMessage[T],
-    ctx: ProgressUpdateContext,
-) -> None:
-    if msg.task_id is not None:
-        ctx.progress.update(
-            msg.task_id,
-            advance=msg.advance,
-        )
-        if msg.message:
-            ctx.message_panel.add_message(
-                f"Task {msg.task_id}: {msg.message}.",
-            )
-
-
-def _handle_finish_message[T](
-    msg: ProgressMessage[T],
-    ctx: ProgressUpdateContext,
-) -> int:
-    if msg.task_id is not None:
-        ctx.progress.update(
-            msg.task_id,
-            completed=ctx.progress.tasks[msg.task_id].total,
-            visible=False,
-        )
-        if msg.task_id in ctx.task_start_times:
-            del ctx.task_start_times[msg.task_id]
-
-    if msg.result_data is not None:
-        ctx.message_panel.add_message(
-            TASK_FINISHED_MESSAGE.format(msg.result_data),
-        )
-
-    ctx.progress.advance(ctx.overall_task)
-    return 1
-
-
-def _handle_log_message[T](
-    msg: ProgressMessage[T],
-    ctx: ProgressUpdateContext,
-) -> None:
-    if msg.message is not None:
-        ctx.message_panel.add_message(msg.message)
-
-
-def _process_progress_updates[T](
+def _handle_update_msg(
+    msg: UpdateMessage,
     progress: Progress,
-    message_panel: MessagePanel,
-    progress_queue: ManagerQueue[T],
+    log_panel: MessagePanel,
+) -> None:
+    progress.update(
+        msg.task_id,
+        advance=msg.advance,
+    )
+    if msg.message:
+        log_panel.add_message(
+            f"Task {msg.task_id}: {msg.message}.",
+        )
+
+
+def _handle_finish_msg(
+    msg: FinishMessage,
+    progress: Progress,
+    log_panel: MessagePanel,
     overall_task: TaskID,
-    num_tasks: int,
-    console: Console,
     task_start_times: dict[TaskID, float],
 ) -> None:
-    ctx = ProgressUpdateContext(
-        progress=progress,
-        message_panel=message_panel,
-        overall_task=overall_task,
-        num_tasks=num_tasks,
-        console=console,
-        task_start_times=task_start_times,
+    progress.update(
+        msg.task_id,
+        completed=progress.tasks[msg.task_id].total,
+        visible=False,
     )
+    if msg.task_id in task_start_times:
+        del task_start_times[msg.task_id]
+
+    total_time = time.monotonic() - task_start_times.get(msg.task_id, 0.0)
+    log_panel.add_message(
+        f"Task {msg.task_id} finished. Total sleep: {total_time:.2f}s",
+    )
+    progress.advance(overall_task)
+
+
+def _handle_log_msg(
+    msg: LogMessage,
+    log_panel: MessagePanel,
+) -> None:
+    log_panel.add_message(
+        f"Task {msg.task_id}: {msg.message}.",
+    )
+
+
+def _process_progress_updates(
+    progress: Progress,
+    log_panel: MessagePanel,
+    progress_queue: ManagerQueue,
+    overall_task: TaskID,
+    num_tasks: int,
+    task_start_times: dict[TaskID, float],
+) -> None:
     completed_tasks_count: int = 0
-    handlers = {
-        ProgressMessageType.START: _handle_start_message,
-        ProgressMessageType.UPDATE: _handle_update_message,
-        ProgressMessageType.FINISH: _handle_finish_message,
-        ProgressMessageType.LOG: _handle_log_message,
-    }
     while completed_tasks_count < num_tasks:
         try:
-            update_message: ProgressMessage[T] = progress_queue.get(
+            update_message: ProcessMessage = progress_queue.get(
                 timeout=QUEUE_GET_TIMEOUT,
             )
-            handler = handlers.get(update_message.type)
-            if handler is not None:
-                if update_message.type == ProgressMessageType.FINISH:
-                    completed_tasks_count += handler(update_message, ctx)
-                else:
-                    handler(update_message, ctx)
+            if isinstance(update_message, LogMessage):
+                _handle_log_msg(update_message, log_panel)
+            elif isinstance(update_message, StartMessage):
+                _handle_start_msg(update_message, progress, log_panel, task_start_times)
+            elif isinstance(update_message, UpdateMessage):
+                _handle_update_msg(update_message, progress, log_panel)
+            else:
+                _handle_finish_msg(
+                    update_message,
+                    progress,
+                    log_panel,
+                    overall_task,
+                    task_start_times,
+                )
+                completed_tasks_count += 1
         except mp.queues.Empty:
             pass
         except Exception as e:
-            message_panel.add_message(
+            log_panel.add_message(
                 f"[red]Error processing progress update: {e}[/red]",
             )
 
@@ -473,12 +429,17 @@ def run_progress_manager[T](
     task_start_times: dict[TaskID, float] = {}
 
     with Manager() as manager:
-        shared_resources, task_args = _initialize_shared_resources_and_tasks(
-            manager,
-            num_tasks,
-            min_steps,
-            max_steps,
+        shared_resources: SharedResources = SharedResources(
+            task_ids=manager.list(),  # pyright: ignore[reportArgumentType]
+            lock=manager.Lock(),  # pyright: ignore[reportArgumentType]
+            queue=cast("ManagerQueue", manager.Queue()),  # pyright: ignore[reportInvalidCast]
         )
+
+        task_args = [
+            (i, random.randint(min_steps, max_steps), shared_resources)  # noqa: S311
+            for i in range(num_tasks)
+        ]
+        print((i, j) for i, j, _ in task_args)
         progress = Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -490,13 +451,13 @@ def run_progress_manager[T](
             refresh_per_second=PROGRESS_REFRESH_RATE,
         )
         overall_task = _setup_progress_display(
-            console,
             progress,
             num_processes,
             num_tasks,
             shared_resources,
         )
-        message_panel = MessagePanel(max_messages=20)
+        progress.columns[-1].overall_task_id = overall_task
+        log_panel = MessagePanel(max_messages=20)
         progress_table = Table.grid()
         progress_table.add_row(
             Panel(
@@ -509,15 +470,12 @@ def run_progress_manager[T](
             ),
         )
         progress_table.add_row(
-            message_panel,
+            log_panel,
         )
         with Live(progress_table, screen=True, refresh_per_second=10, transient=False):
-            # Corrected: Assign overall_task (which is already a TaskID) directly
-            progress.columns[-1].overall_task_id = overall_task
-
             with Pool(processes=num_processes) as pool:
-                message_panel.add_message(
-                    f"Starting process pool with {num_processes} "
+                log_panel.add_message(
+                    f"Starting pool with {num_processes} "
                     f"workers for {num_tasks} tasks.",
                 )
 
@@ -527,18 +485,18 @@ def run_progress_manager[T](
                 ]
 
                 _process_progress_updates(
-                    progress,
-                    message_panel,
-                    shared_resources.queue,
-                    overall_task,
-                    num_tasks,
-                    console,
-                    task_start_times,
+                    progress=progress,
+                    log_panel=log_panel,
+                    progress_queue=shared_resources.queue,
+                    overall_task=overall_task,
+                    num_tasks=num_tasks,
+                    task_start_times=task_start_times,
                 )
 
                 final_results = [res.get() for res in async_results]
 
-                message_panel.add_message(ALL_PROCESSING_COMPLETE_MESSAGE)
+            log_panel.add_message("All tasks have been completed.")
+            progress.stop_task(overall_task)
             _ = input()
     return final_results
 
@@ -546,8 +504,8 @@ def run_progress_manager[T](
 def fake_work(
     task_id_num: int,
     total_steps: int,
-    rich_task_id: TaskID | None,
-    progress_queue: ManagerQueue[float],
+    rich_task_id: TaskID,
+    progress_queue: ManagerQueue,
 ) -> float:
     total_sleep_time = 0.0
 
@@ -565,8 +523,7 @@ def fake_work(
             msg = f"Task {task_id_num} is halfway done."
 
         progress_queue.put(
-            ProgressMessage(
-                type=ProgressMessageType.UPDATE,
+            UpdateMessage(
                 task_id=rich_task_id,
                 advance=1,
                 message=msg,

@@ -93,7 +93,7 @@ class MessagePanel(Panel):
 
 def main():
     console = Console()
-    message_panel = MessagePanel(max_messages=10)
+    log_panel = MessagePanel(max_messages=10)
 
     example_messages = [
         "System startup initiated.",
@@ -119,16 +119,16 @@ def main():
     ]
     message_index = 0
 
-    with Live(message_panel, refresh_per_second=4, console=console) as live:
+    with Live(log_panel, refresh_per_second=4, console=console) as live:
         try:
             while True:
                 if message_index < len(example_messages):
                     msg = example_messages[message_index]
-                    message_panel.add_message(msg)
+                    log_panel.add_message(msg)
                     message_index += 1
                 else:
                     random_msg = f"Random event {random.randint(1000, 9999)} occurred at {time.strftime('%H:%M:%S')}"
-                    message_panel.add_message(random_msg)
+                    log_panel.add_message(random_msg)
 
                 time.sleep(1.5)
         except KeyboardInterrupt:
