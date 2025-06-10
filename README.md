@@ -1,2 +1,2 @@
 # python-utils
-Usefule python utilities I want to make public.
+Useful Python utilities I'd like to share publicly.
